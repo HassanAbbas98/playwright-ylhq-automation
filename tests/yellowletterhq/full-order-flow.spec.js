@@ -420,7 +420,7 @@ test('full order flow – Letter → CSV upload → Invoice Me', async ({
 
   // Confirmation popup: "YES, PLEASE PROCEED".
   const proceedPopup = checkoutPage.locator('a.popup-cerrar', {
-    hasText: /YES, PLEASE PROCEEED/i,
+    hasText: /YES, PLEASE PROCEED/i,
   })
   await expect(proceedPopup).toBeVisible({ timeout: 60_000 })
   await proceedPopup.click()
