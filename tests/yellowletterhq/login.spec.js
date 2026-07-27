@@ -1,11 +1,27 @@
 // @ts-check
 const { test, expect } = require('@playwright/test')
+const path = require('path')
+const dotenv = require('dotenv')
 
 const LOGIN_URL =
   'https://www.yellowletterhq.com/products-03-listsource-leads-membership/my-account/'
 
-// Credentials are read from environment variables (loaded from `.env` by
-// tests/global-setup.js). See `.env.example` for the expected keys.
+/**
+ * Credentials are read from environment variables.
+ *
+ * `tests/global-setup.js` loads `.env` before any spec runs, so normally
+ * `process.env.VALID_EMAIL` / `VALID_PASSWORD` are populated by the time
+ * this file is evaluated. We also call `dotenv.config()` here as a
+ * belt-and-suspenders fallback so the spec still works when invoked
+ * directly (e.g. via the VS Code Playwright extension, which can load
+ * spec files without running the project's globalSetup). The path is
+ * resolved relative to this file so it works no matter the cwd.
+ *
+ * See `.env.example` for the expected keys.
+ */
+
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') })
+
 const VALID_EMAIL = requireEnv('VALID_EMAIL')
 const VALID_PASSWORD = requireEnv('VALID_PASSWORD')
 
@@ -14,7 +30,8 @@ function requireEnv(/** @type {string} */ key) {
   if (!value) {
     throw new Error(
       `Missing required environment variable ${key}. ` +
-        `Add it to your .env file (see .env.example).`,
+        `Create a .env file in the project root (copy .env.example) ` +
+        `and set ${key} there.`,
     )
   }
   return value

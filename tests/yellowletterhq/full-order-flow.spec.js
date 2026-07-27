@@ -1,6 +1,7 @@
 // @ts-check
 const { test, expect } = require('@playwright/test')
 const path = require('path')
+const dotenv = require('dotenv')
 
 /**
  * End-to-end test: logs in, navigates the shop, configures a Letter product,
@@ -9,12 +10,22 @@ const path = require('path')
  *
  * Credentials are read from environment variables (loaded from `.env` by
  * tests/global-setup.js). See `.env.example` for the expected keys.
+ *
+ * We also call `dotenv.config()` here as a belt-and-suspenders fallback so
+ * the spec works when invoked directly (e.g. `node` or a debug run) even
+ * if `global-setup` hasn't run yet. The path is resolved relative to this
+ * file so it works no matter where Playwright is launched from.
  */
 
 const LOGIN_URL =
   'https://www.yellowletterhq.com/products-03-listsource-leads-membership/my-account/'
 const SHOP_URL = 'https://www.yellowletterhq.com/shop/'
 const PRODUCT_URL = 'https://www.yellowletterhq.com/product/letters/'
+
+// Load .env from the project root (two levels up from this file). Silently
+// ignore if missing — global-setup may have already loaded it, and we don't
+// want a missing .env to throw before we can produce a useful error below.
+dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') })
 
 // Throws at module load if the env vars are missing — better than a confusing
 // login failure further down the test.
@@ -26,7 +37,8 @@ function requireEnv(/** @type {string} */ key) {
   if (!value) {
     throw new Error(
       `Missing required environment variable ${key}. ` +
-        `Add it to your .env file (see .env.example).`,
+        `Create a .env file in the project root (copy .env.example) ` +
+        `and set ${key} there.`,
     )
   }
   return value
