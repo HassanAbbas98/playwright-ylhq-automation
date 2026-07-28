@@ -124,10 +124,19 @@ test('full order flow – Letter → CSV upload → Invoice Me', async ({
   // -----------------------------------------------------------------
   // 3. PICK THE "Check Letter" PRODUCT
   // -----------------------------------------------------------------
-  // Give the Letters page a moment to finish rendering its product
-  // buttons before clicking – they're loaded asynchronously and the
-  // first attempt races the AJAX if we click immediately.
-  await page.waitForTimeout(2_000)
+  // During peak/load hours the /product/letters/ page renders a transient
+  // loading banner, "Does this proof need corrections?" (`<strong>` with
+  // `display: block`). This banner appears over the product grid for
+  // 10–20 seconds while the page finishes loading. Clicking the "Check
+  // Letter" product button while that banner is still on-screen is
+  // unreliable (the click is intercepted, the templates never load).
+  // Wait for the banner to disappear from the DOM before interacting
+  // with the product grid — once it's gone the page is fully ready.
+  await expect(
+    page.locator('strong', {
+      hasText: 'Does this proof need corrections?',
+    }),
+  ).toHaveCount(0, { timeout: 30_000 })
   const checkLetterButton = page.locator('button.ylhq_products', {
     hasText: 'Check Letter',
   })
