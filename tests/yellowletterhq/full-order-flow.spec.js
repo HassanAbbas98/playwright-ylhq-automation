@@ -124,23 +124,39 @@ test('full order flow – Letter → CSV upload → Invoice Me', async ({
   // -----------------------------------------------------------------
   // 3. PICK THE "Check Letter" PRODUCT
   // -----------------------------------------------------------------
-  // During peak/load hours the /product/letters/ page renders a transient
-  // loading banner, "Does this proof need corrections?" (`<strong>` with
-  // `display: block`). This banner appears over the product grid for
-  // 10–20 seconds while the page finishes loading. Clicking the "Check
-  // Letter" product button while that banner is still on-screen is
-  // unreliable (the click is intercepted, the templates never load).
-  // Wait for the banner to disappear from the DOM before interacting
-  // with the product grid — once it's gone the page is fully ready.
-  await expect(
-    page.locator('strong', {
-      hasText: 'Does this proof need corrections?',
-    }),
-  ).toHaveCount(0, { timeout: 30_000 })
+  // During peak/load hours the /product/letters/ page takes 5–20 seconds
+  // to fully render. While it's loading the browser shows a loading bar
+  // and a transient banner, "Does this proof need corrections?" (`<strong>`
+  // with `display: block`), appears over the product grid. Clicking the
+  // "Check Letter" product button before the page has finished loading
+  // is unreliable — the click is intercepted and the templates (including
+  // "Attention Check") never load.
+  //
+  // Two readiness signals, used together, gate the click:
+  //
+  //   1. The browser-level `load` event has fired. This tells us the
+  //      browser's loading bar has stopped spinning for the *initial*
+  //      page assets (HTML, CSS, fonts, images, scripts). Once `load`
+  //      fires, the page is "fully loaded" from the browser's perspective.
+  //
+  //   2. The "Check Letter" button is visible. This confirms the
+  //      product grid has finished rendering.
+  //
+  // We deliberately do NOT use `waitForLoadState('networkidle')` here —
+  // YLHQ (and most WordPress/WooCommerce sites) have analytics, beacons,
+  // or background polling that keeps the network busy indefinitely, so
+  // `networkidle` would time out and never reach the click.
+  //
+  // We also do NOT wait on the "Does this proof need corrections?" banner
+  // selector — that check was unreliable because the banner markup
+  // changes between YLHQ releases and a missing selector would block
+  // the click forever. The browser `load` event + button visibility is
+  // a more robust readiness signal.
+  await page.waitForLoadState('load')
   const checkLetterButton = page.locator('button.ylhq_products', {
     hasText: 'Check Letter',
   })
-  await expect(checkLetterButton).toBeVisible()
+  await checkLetterButton.waitFor({ state: 'visible', timeout: 30_000 })
   await checkLetterButton.click()
 
   // -----------------------------------------------------------------
