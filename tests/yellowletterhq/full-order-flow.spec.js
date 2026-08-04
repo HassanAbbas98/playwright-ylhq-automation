@@ -1,6 +1,7 @@
 // @ts-check
 const { test, expect } = require('@playwright/test')
 const path = require('path')
+const fs = require('fs')
 const dotenv = require('dotenv')
 
 /**
@@ -458,16 +459,52 @@ test('full order flow – Letter → CSV upload → Invoice Me', async ({
   )
   await expect(orderDetails).toBeVisible({ timeout: 180_000 })
 
-  await expect(
-    checkoutPage.locator(
-      '.woocommerce-order-overview__order.order strong',
-    ),
-  ).toBeVisible()
+  // The order number is rendered inside a `<strong>` tag nested in
+  // `<li class="woocommerce-order-overview__order order">…</li>`. Wait for
+  // it to appear (it's populated by the thank-you page after the order
+  // finishes processing), then read its text content.
+  const orderIdLocator = checkoutPage.locator(
+    'li.woocommerce-order-overview__order.order strong',
+  )
+  await expect(orderIdLocator).toBeVisible({ timeout: 180_000 })
+  // Give the dynamic order number a moment to render inside the <strong>
+  // element — the element is in the DOM but the inner text can be empty
+  // for a brief moment while WooCommerce hydrates it.
+  await expect(orderIdLocator).not.toHaveText('', { timeout: 60_000 })
+  const orderId = (await orderIdLocator.textContent() || '').trim()
+
   await expect(
     checkoutPage.locator(
       '.woocommerce-order-overview__payment-method.method strong',
     ),
   ).toHaveText('Invoice Me')
+
+  // -----------------------------------------------------------------
+  // 11. PERSIST orderId → test-data/latest-order.json
+  // -----------------------------------------------------------------
+  // The order id is consumed downstream by tests/yellowletterhq/accuzip-
+  // verification.spec.js, which is decoupled from this storefront flow.
+  // Writing it to a local JSON context file keeps the two specs
+  // independent — the AccuZip spec can be re-run on its own without
+  // re-running the full order placement.
+  const orderContextDir = path.join(__dirname, '..', '..', 'test-data')
+  const orderContextPath = path.join(orderContextDir, 'latest-order.json')
+  // Ensure the directory exists before writing (first run, CI, etc.).
+  if (!fs.existsSync(orderContextDir)) {
+    fs.mkdirSync(orderContextDir, { recursive: true })
+  }
+  const orderContext = {
+    orderId,
+    createdAt: new Date().toISOString(),
+  }
+  fs.writeFileSync(
+    orderContextPath,
+    JSON.stringify(orderContext, null, 2) + '\n',
+    'utf8',
+  )
+  // eslint-disable-next-line no-console
+  console.log(`[full-order-flow] Saved orderId=${orderId} to ${orderContextPath}`)
+
   // NOTE: the billing email shown on the order-received page varies
   // (login email, billing email, or whatever the WooCommerce session has).
   // We intentionally don't pin it here since it's flaky across runs.
