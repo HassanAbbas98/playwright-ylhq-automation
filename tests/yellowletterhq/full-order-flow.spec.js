@@ -53,8 +53,6 @@ const CSV_FILE = path.join(
 )
 
 // Columns we want to map in the YLHQ field -> CSV column mapping grid.
-// (The Letters product's mapping rows don't include a "county" row, so it's
-// intentionally omitted.)
 const COLUMN_MAPPINGS = {
   'first name': 'FIRST NAME',
   'last name': 'LAST NAME',
