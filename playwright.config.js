@@ -10,6 +10,25 @@ import './tests/global-setup.js';
 
 /**
  * @see https://playwright.dev/docs/test-configuration
+ *
+ * Project structure:
+ *
+ *   order-placement
+ *     └─ runs tests/yellowletterhq/full-order-flow.spec.js on Desktop
+ *        Chrome. Writes the generated orderId to test-data/latest-order.json.
+ *
+ *   accuzip-verification
+ *     └─ depends on order-placement. Runs tests/yellowletterhq/accuzip-
+ *        verification.spec.js on Desktop Chrome and polls WP-Admin for
+ *        the AccuZip start / completion notes that the order placement
+ *        produced.
+ *
+ * Using explicit projects with project-scoped `testMatch` keeps each spec
+ * from being picked up multiple times (the root `testDir: './tests'` would
+ * otherwise include both specs in every project). `dependencies` makes
+ * Playwright run `order-placement` first and *skip* `accuzip-verification`
+ * if the placement test fails — by the time verification starts, the JSON
+ * context file is guaranteed to contain a fresh orderId.
  */
 export default defineConfig({
   testDir: './tests',
@@ -36,38 +55,31 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: [
     {
-      name: 'chromium',
+      name: 'order-placement',
+      testMatch: /full-order-flow\.spec\.js$/,
       use: { ...devices['Desktop Chrome'] },
     },
 
     {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      name: 'accuzip-verification',
+      testMatch: /accuzip-verification\.spec\.js$/,
+      // Run order-placement first; skip this project if the upstream fails.
+      dependencies: ['order-placement'],
+      use: { ...devices['Desktop Chrome'] },
     },
 
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-
-    /* Test against mobile viewports. */
+    /* Run against additional browsers by uncommenting below and copying the
+     * projects above with `testMatch` set to the desired spec. */
     // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
+    //   name: 'order-placement-firefox',
+    //   testMatch: /full-order-flow\.spec\.js$/,
+    //   use: { ...devices['Desktop Firefox'] },
     // },
     // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+    //   name: 'accuzip-verification-firefox',
+    //   testMatch: /accuzip-verification\.spec\.js$/,
+    //   dependencies: ['order-placement-firefox'],
+    //   use: { ...devices['Desktop Firefox'] },
     // },
   ],
 
@@ -78,4 +90,3 @@ export default defineConfig({
   //   reuseExistingServer: !process.env.CI,
   // },
 });
-

@@ -71,7 +71,7 @@ const COLUMN_MAPPINGS = {
 test('full order flow – Letter → CSV upload → Invoice Me', async ({
   page,
 }) => {
-  test.setTimeout(600_000) // 10 min – order placement/processing can be slow due to multiple steps
+  test.setTimeout(300_000) // 5 min – order placement typically completes in <2 min;
 
   // -----------------------------------------------------------------
   // 1. LOGIN
