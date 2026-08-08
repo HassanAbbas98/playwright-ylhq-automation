@@ -5,21 +5,26 @@ const fs = require('fs')
 const dotenv = require('dotenv')
 
 /**
- * End-to-end test: logs in, navigates the shop, configures a Letter product,
+ * End-to-end test: navigates the shop, configures a Letter product,
  * uploads a CSV, maps columns, places the order via "Invoice Me", and
  * verifies the order-received page.
  *
- * Credentials are read from environment variables (loaded from `.env` by
- * tests/global-setup.js). See `.env.example` for the expected keys.
+ * Authentication: this spec no longer logs in. The `setup-storefront`
+ * project (tests/storefront-auth.setup.js) authenticates into the
+ * WooCommerce storefront once before any project runs and saves the
+ * session to `.auth/storefront.json`. The `storefront-tests` project
+ * consumes that storageState via `playwright.config.js`, so this spec
+ * navigates directly to the shop.
  *
- * We also call `dotenv.config()` here as a belt-and-suspenders fallback so
- * the spec works when invoked directly (e.g. `node` or a debug run) even
- * if `global-setup` hasn't run yet. The path is resolved relative to this
- * file so it works no matter where Playwright is launched from.
+ * Credentials live in `.env`. `setup-storefront` validates them at
+ * setup-script load time and throws a clear error if missing — see
+ * `.env.example` for the expected keys. We also call `dotenv.config()`
+ * here as a belt-and-suspenders fallback so the spec works when
+ * invoked directly (e.g. `node` or a debug run) even if `global-setup`
+ * hasn't run yet. The path is resolved relative to this file so it
+ * works no matter where Playwright is launched from.
  */
 
-const LOGIN_URL =
-  'https://www.yellowletterhq.com/products-03-listsource-leads-membership/my-account/'
 const SHOP_URL = 'https://www.yellowletterhq.com/shop/'
 const PRODUCT_URL = 'https://www.yellowletterhq.com/product/letters/'
 
@@ -27,23 +32,6 @@ const PRODUCT_URL = 'https://www.yellowletterhq.com/product/letters/'
 // ignore if missing — global-setup may have already loaded it, and we don't
 // want a missing .env to throw before we can produce a useful error below.
 dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') })
-
-// Throws at module load if the env vars are missing — better than a confusing
-// login failure further down the test.
-const VALID_EMAIL = requireEnv('VALID_EMAIL')
-const VALID_PASSWORD = requireEnv('VALID_PASSWORD')
-
-function requireEnv(/** @type {string} */ key) {
-  const value = process.env[key]
-  if (!value) {
-    throw new Error(
-      `Missing required environment variable ${key}. ` +
-        `Create a .env file in the project root (copy .env.example) ` +
-        `and set ${key} there.`,
-    )
-  }
-  return value
-}
 
 const CSV_FILE = path.join(
   __dirname,
@@ -72,17 +60,7 @@ test('full order flow – Letter → CSV upload → Invoice Me', async ({
   test.setTimeout(300_000) // 5 min – order placement typically completes in <2 min;
 
   // -----------------------------------------------------------------
-  // 1. LOGIN
-  // -----------------------------------------------------------------
-  await page.goto(LOGIN_URL)
-  await expect(page.locator('#username')).toBeVisible()
-  await page.locator('#username').fill(VALID_EMAIL)
-  await page.locator('#password').fill(VALID_PASSWORD)
-  await page.locator('button[name="login"]').click()
-  await expect(page.locator('button[name="login"]')).toBeHidden()
-
-  // -----------------------------------------------------------------
-  // 2. NAVIGATE TO SHOP → FLIP CARD → "Letters"
+  // 1. NAVIGATE TO SHOP (auth via storageState — see header docstring)
   // -----------------------------------------------------------------
   await page.goto(SHOP_URL)
   await expect(page).toHaveURL(SHOP_URL)

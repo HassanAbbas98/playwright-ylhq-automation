@@ -6,18 +6,19 @@
  * order placement flow (`full-order-flow.spec.js`). The storefront
  * spec writes the generated `orderId` to `test-data/latest-order.json`
  * once WooCommerce's thank-you page renders. This spec reads that
- * JSON in `beforeEach`, logs in to WP-Admin, opens the order edit
- * page, and polls for the AccuZip "Started at:" and "Completed at:"
- * notes that the AccuZip2 background worker appends to the order.
+ * JSON in `beforeEach`, opens the order edit page directly (auth is
+ * supplied by the `setup` project's storageState), and polls for the
+ * AccuZip "Started at:" and "Completed at:" notes that the AccuZip2
+ * background worker appends to the order.
  *
  * Two-stage polling:
  *   1. Wait up to 25 minutes for the "Accuzip Started at:" note.
  *   2. Wait up to 20 minutes (from start-detection) for the
  *      "Accuzip Completed at:" note.
  *
- * Worst-case wall-clock is 25 + 20 = 45 min plus login and assertion
- * overhead; test.setTimeout is set to 45 min 50 s to give a small
- * margin without letting a stuck worker run forever.
+ * Worst-case wall-clock is 25 + 20 = 45 min plus assertion overhead;
+ * test.setTimeout is set to 45 min 50 s to give a small margin without
+ * letting a stuck worker run forever.
  *
  * Polling is `page.reload()` every 30 s. We could refresh only the
  * `.note_content` container, but a full reload is simpler and avoids
@@ -26,6 +27,13 @@
  *
  * The order page URL is derived from `WP_ADMIN_URL` + the standard
  * WooCommerce order-edit query: `post.php?post=${orderId}&action=edit`.
+ *
+ * Authentication: this spec no longer logs in. The `setup` project
+ * (tests/auth.setup.js) authenticates into WP-Admin once before any
+ * project runs and saves the session to `.auth/user.json`. Both
+ * `order-placement` and `accuzip-verification` projects consume that
+ * storageState via `playwright.config.js`, so this spec navigates
+ * directly to the order edit URL.
  */
 const { test, expect } = require('@playwright/test')
 const path = require('path')
@@ -40,26 +48,8 @@ dotenv.config({ path: path.resolve(__dirname, '..', '..', '.env') })
 // -----------------------------------------------------------------
 // ENV
 // -----------------------------------------------------------------
-// WP_ADMIN_URL is required (it's the base URL we navigate to after login).
+// WP_ADMIN_URL is required (it's the base URL we navigate to).
 const WP_ADMIN_URL = requireEnv('WP_ADMIN_URL')
-
-// WP_USER / WP_PASS fall back to the storefront credentials when not set.
-// YLHQ's dev user (dev@yellowletterhq.com) is an admin, so most setups
-// can use the same email/password pair for both storefront and WP-Admin.
-// Set WP_USER / WP_PASS explicitly when the admin user is different.
-const WP_USER = process.env.WP_USER || process.env.VALID_EMAIL || ''
-const WP_PASS = process.env.WP_PASS || process.env.VALID_PASSWORD || ''
-if (!WP_USER || !WP_PASS) {
-  throw new Error(
-    `Missing WP_USER / WP_PASS (and no fallback in VALID_EMAIL / ` +
-      `VALID_PASSWORD). Add credentials to .env (see .env.example).`,
-  )
-}
-
-// Standard WP login form. YLHQ does not customize this — the form is
-// served at `/wp-login.php` regardless of WPMU/Custom Login plugin
-// status; if that ever changes, override this constant.
-const WP_LOGIN_URL = 'https://www.yellowletterhq.com/wp-login.php'
 
 function requireEnv(/** @type {string} */ key) {
   const value = process.env[key]
@@ -263,26 +253,6 @@ async function pollForNote(page, prefix, noteKind, deadlineMs, orderId) {
 }
 
 // -----------------------------------------------------------------
-// WP-ADMIN LOGIN
-// -----------------------------------------------------------------
-/**
- * Log in to WP-Admin via the standard /wp-login.php form.
- *
- * @param {import('@playwright/test').Page} page
- */
-async function loginToWpAdmin(page) {
-  await page.goto(WP_LOGIN_URL)
-  await expect(page.locator('#user_login')).toBeVisible()
-  await page.locator('#user_login').fill(WP_USER)
-  await page.locator('#user_pass').fill(WP_PASS)
-  await page.locator('#wp-submit').click()
-  // WP redirects to wp-admin (or redirect_to) on success. Wait for
-  // the admin URL before navigating further.
-  await page.waitForURL(/wp-admin/, { timeout: 60_000 })
-  await expect(page.locator('#wpadminbar')).toBeVisible({ timeout: 60_000 })
-}
-
-// -----------------------------------------------------------------
 // TEST HOOKS
 // -----------------------------------------------------------------
 test.beforeEach(() => {
@@ -296,7 +266,8 @@ test('AccuZip verification – start + completion notes for latest storefront or
   page,
 }) => {
   // 45 min 50 s — fits 25 + 20 worst case (45 min exactly) with a
-  // small margin for login + assertion overhead.
+  // small margin for assertion overhead. Auth is handled by the
+  // `setup` project via storageState, so no login budget is needed.
   test.setTimeout(2_750_000)
 
   const { orderId, createdAt } = readLatestOrder()
@@ -314,16 +285,8 @@ test('AccuZip verification – start + completion notes for latest storefront or
   )
 
   // -----------------------------------------------------------------
-  // LOGIN → NAVIGATE TO ORDER EDIT PAGE
+  // NAVIGATE DIRECTLY TO ORDER EDIT PAGE (auth via storageState)
   // -----------------------------------------------------------------
-  const loginStart = Date.now()
-  await loginToWpAdmin(page)
-  const loginSec = Math.floor((Date.now() - loginStart) / 1_000)
-  // eslint-disable-next-line no-console
-  console.log(
-    `[accuzip-verification] WP-Admin login completed in ${loginSec}s.`,
-  )
-
   await page.goto(orderEditUrl(orderId), { waitUntil: 'domcontentloaded' })
   // Wait for the notes panel to render before polling starts.
   await page
