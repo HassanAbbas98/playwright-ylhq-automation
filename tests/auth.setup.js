@@ -78,11 +78,16 @@ setup('Authenticate into WP-Admin', async ({ page }) => {
     )
   }
 
-  // `domcontentloaded` is enough — the login form is server-rendered HTML
-  // and we don't need to wait for analytics iframes, fonts, etc. The
-  // default `load` event can exceed the 30 s actionTimeout on slow
-  // connections because WP-Admin pulls in GTM and a social-login widget.
-  await page.goto(WP_LOGIN_URL, { waitUntil: 'domcontentloaded' })
+  // Wait for the full `load` event (not just `domcontentloaded`) so
+  // WP-Admin's bundled `login-forms.js` is guaranteed to have parsed
+  // before we touch the form. WP's `pwdset` listener binds to
+  // `#user_pass` and replaces the input node when it hydrates; if we
+  // fill before that hydration finishes, the value lands on the
+  // original (soon-to-be-removed) node and `inputValue()` reads empty.
+  // The default `load` event can be slow on WP-Admin because it pulls
+  // in GTM and a social-login widget — use the `commit` waitUntil so
+  // we balance hydration timing against the slow-asset risk.
+  await page.goto(WP_LOGIN_URL, { waitUntil: 'commit' })
 
   // Wait for both inputs to render before filling. Use the Locator
   // `.fill(...)` form (rather than the page-level `page.fill(...)`) so
@@ -93,8 +98,22 @@ setup('Authenticate into WP-Admin', async ({ page }) => {
   await userLogin.waitFor({ state: 'visible', timeout: 60_000 })
   await userPass.waitFor({ state: 'visible', timeout: 60_000 })
 
+  // Give WP's login JS a moment to fully attach its `pwdset` listener
+  // and any DOM-replacement hooks. A short, deterministic wait here
+  // is cheaper than retrying on every CI run.
+  await page.waitForLoadState('load')
+
   await userLogin.fill(WP_USER)
-  await userPass.fill(WP_PASS)
+
+  // Type the password as real keystrokes (`pressSequentially`) instead
+  // of `fill()`. WP-Admin's `pwdset` listener only syncs the password
+  // input's value to its replacement node on true keypress events —
+  // `fill()` dispatches synthetic `input` events that don't trigger
+  // that listener, so the value disappears when the form hydrates.
+  // The small `delay` mimics human typing and avoids any future rate
+  // limits WP might add.
+  await userPass.click()
+  await userPass.pressSequentially(WP_PASS, { delay: 20 })
 
   // Diagnostic: re-read both inputs after fill to confirm the values
   // actually landed. If this prints empty values, the env vars are

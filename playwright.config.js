@@ -77,11 +77,25 @@ export default defineConfig({
      * appropriate setup-* project in `dependencies` to gate themselves. */
     {
       name: 'setup-wp-admin',
-      testMatch: /auth\.setup\.js$/,
+      // Pin workers=1 so the setup test runs strictly once across the
+      // whole worker pool. Without this, Playwright may schedule the
+      // single setup test on multiple workers and the resulting
+      // `storageState` writes can race — producing a partial JSON
+      // file the consumer projects then refuse to load, forcing a
+      // redundant UI login on the next attempt.
+      workers: 1,
+      // Anchor the regex with a path boundary so it matches
+      // `tests/auth.setup.js` (and any nested copy like
+      // `tests/foo/auth.setup.js`) but NOT `storefront-auth.setup.js`.
+      // The unanchored `/auth\.setup\.js$/` would match both, causing
+      // the storefront login to run on every `admin-tests` invocation.
+      testMatch: /(^|\/)auth\.setup\.js$/,
     },
 
     {
       name: 'setup-storefront',
+      // Same reasoning as setup-wp-admin — see comment above.
+      workers: 1,
       testMatch: /storefront-auth\.setup\.js$/,
     },
 

@@ -2,6 +2,7 @@
 const { test, expect } = require('@playwright/test')
 const path = require('path')
 const dotenv = require('dotenv')
+const { notifyDiscord, formatPacificTimestamp } = require('../../utils/discordNotifier')
 
 const LOGIN_URL =
   'https://www.yellowletterhq.com/products-03-listsource-leads-membership/my-account/'
@@ -52,6 +53,14 @@ test.describe('Yellow Letter HQ – My Account Login', () => {
     // After login, the Log in button should disappear.
     await expect(page.locator('button[name="login"]')).toBeHidden()
     await expect(page).toHaveURL(/my-account/)
+
+    // Best-effort Discord notification. `notifyDiscord` swallows its own
+    // errors and never throws, so a Discord outage cannot fail the test.
+    // Timestamp formatted in America/Los_Angeles (San Diego) — the
+    // clock YLHQ's servers run on — with live TZ abbreviation (PDT/PST).
+    await notifyDiscord(
+      `✅ [SUCCESS] User logged in successfully at ${formatPacificTimestamp()}`,
+    )
   })
 
   test('rejects login with an invalid password', async ({ page }) => {

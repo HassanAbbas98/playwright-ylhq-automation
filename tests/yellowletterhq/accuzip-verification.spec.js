@@ -39,6 +39,10 @@ const { test, expect } = require('@playwright/test')
 const path = require('path')
 const fs = require('fs')
 const dotenv = require('dotenv')
+const {
+  notifyDiscord,
+  formatPacificTimestamp,
+} = require('../../utils/discordNotifier')
 
 // Load .env from the project root. globalSetup normally does this, but
 // loading it here too lets the spec work when invoked directly (e.g.
@@ -294,82 +298,123 @@ test('AccuZip verification – start + completion notes for latest storefront or
     .catch(() => null)
 
   // -----------------------------------------------------------------
-  // STAGE 1 — wait for "Accuzip Started at:" (≤25 min)
+  // VERIFICATION (wrapped for Discord notifications)
   // -----------------------------------------------------------------
-  const stage1Deadline = Date.now() + STAGE_1_TIMEOUT_MS
-  // eslint-disable-next-line no-console
-  console.log(
-    `[AccuZip] Stage 1: polling for start note (≤25 min) for Order #${orderId}.`,
-  )
-
-  const startResult = await pollForNote(
-    page,
-    START_NOTE_PREFIX,
-    'start',
-    stage1Deadline,
-    orderId,
-  )
-  if (!startResult) {
-    throw new Error(
-      `FAIL: AccuZip Start Note was not generated within 25 minutes for ` +
-        `Order #${orderId}. AccuZip queue (AccuZip2 single-batch worker) ` +
-        `is likely stuck.`,
+  // Stage 1 + Stage 2 polling + final assertions all live inside a
+  // try/catch so we can fire a Discord alert on timeout or failure.
+  // `currentStage` lets the failure message identify which stage
+  // failed (operators want to know whether the worker is stuck or
+  // whether processing stalled mid-run). The catch re-throws so
+  // Playwright still marks the test as failed — `notifyDiscord` is
+  // best-effort only.
+  let currentStage = 'init'
+  try {
+    // -----------------------------------------------------------------
+    // STAGE 1 — wait for "Accuzip Started at:" (≤25 min)
+    // -----------------------------------------------------------------
+    currentStage = 'stage 1 (start note)'
+    const stage1Deadline = Date.now() + STAGE_1_TIMEOUT_MS
+    // eslint-disable-next-line no-console
+    console.log(
+      `[AccuZip] Stage 1: polling for start note (≤25 min) for Order #${orderId}.`,
     )
-  }
-  const { timestamp: startTimestamp, locator: startNoteLocator } = startResult
-  const startDetectedAt = Date.now()
 
-  // eslint-disable-next-line no-console
-  console.log(
-    `[AccuZip] Start note detected for Order #${orderId} at: ${startTimestamp}`,
-  )
-
-  // -----------------------------------------------------------------
-  // STAGE 2 — wait for "Accuzip Completed at:" (≤20 min from start)
-  // -----------------------------------------------------------------
-  const stage2Deadline = startDetectedAt + STAGE_2_TIMEOUT_MS
-  // eslint-disable-next-line no-console
-  console.log(
-    `[AccuZip] Stage 2: polling for completion note (≤20 min from start) ` +
-      `for Order #${orderId}.`,
-  )
-
-  const completionResult = await pollForNote(
-    page,
-    COMPLETION_NOTE_PREFIX,
-    'completion',
-    stage2Deadline,
-    orderId,
-  )
-  if (!completionResult) {
-    throw new Error(
-      `FAIL: AccuZip Start note was found, but Completion Note was not ` +
-        `generated within 20 minutes for Order #${orderId}. AccuZip ` +
-        `processing got stuck during execution.`,
+    const startResult = await pollForNote(
+      page,
+      START_NOTE_PREFIX,
+      'start',
+      stage1Deadline,
+      orderId,
     )
+    if (!startResult) {
+      throw new Error(
+        `FAIL: AccuZip Start Note was not generated within 25 minutes for ` +
+          `Order #${orderId}. AccuZip queue (AccuZip2 single-batch worker) ` +
+          `is likely stuck.`,
+      )
+    }
+    const { timestamp: startTimestamp, locator: startNoteLocator } = startResult
+    const startDetectedAt = Date.now()
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[AccuZip] Start note detected for Order #${orderId} at: ${startTimestamp}`,
+    )
+
+    // -----------------------------------------------------------------
+    // STAGE 2 — wait for "Accuzip Completed at:" (≤20 min from start)
+    // -----------------------------------------------------------------
+    currentStage = 'stage 2 (completion note)'
+    const stage2Deadline = startDetectedAt + STAGE_2_TIMEOUT_MS
+    // eslint-disable-next-line no-console
+    console.log(
+      `[AccuZip] Stage 2: polling for completion note (≤20 min from start) ` +
+        `for Order #${orderId}.`,
+    )
+
+    const completionResult = await pollForNote(
+      page,
+      COMPLETION_NOTE_PREFIX,
+      'completion',
+      stage2Deadline,
+      orderId,
+    )
+    if (!completionResult) {
+      throw new Error(
+        `FAIL: AccuZip Start note was found, but Completion Note was not ` +
+          `generated within 20 minutes for Order #${orderId}. AccuZip ` +
+          `processing got stuck during execution.`,
+      )
+    }
+    const {
+      timestamp: completionTimestamp,
+      locator: completionNoteLocator,
+    } = completionResult
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[AccuZip] Completion note detected successfully for Order #${orderId} ` +
+        `at: ${completionTimestamp}`,
+    )
+
+    // -----------------------------------------------------------------
+    // FINAL ASSERTIONS
+    // -----------------------------------------------------------------
+    // Explicitly assert that both note locators are visible — this gives
+    // the test report a clear "passed" line per stage and protects
+    // against the case where polling succeeded but the page state has
+    // since changed.
+    await expect(startNoteLocator).toBeVisible()
+    await expect(completionNoteLocator).toBeVisible()
+
+    // Sanity: both timestamps should be non-empty after a successful poll.
+    expect(startTimestamp).toBeTruthy()
+    expect(completionTimestamp).toBeTruthy()
+
+    // Success notification — best-effort; never throws.
+    await notifyDiscord(
+      `✅ [ACCUZIP SUCCESS] AccuZip verification completed for Order #: ${orderId} at ${formatPacificTimestamp()}`,
+    )
+  } catch (error) {
+    // Capture the *exact* error message. Playwright errors can carry a
+    // multi-line message with the locator and timeout; truncate to 1500
+    // chars so the full Discord message (prefix + reason + timestamp)
+    // stays under Discord's 2000-char limit.
+    const rawMessage = errorMessage(error)
+    const truncated =
+      rawMessage.length > 1500
+        ? `${rawMessage.slice(0, 1500)}… [truncated]`
+        : rawMessage
+
+    await notifyDiscord(
+      `❌ [ACCUZIP TIMEOUT/FAILED] AccuZip verification failed or timed out ` +
+        `for Order #: ${orderId} at ${formatPacificTimestamp()}. ` +
+        `Reason: ${currentStage} — ${truncated}`,
+    )
+
+    // Re-throw so Playwright still records this as a failure —
+    // otherwise the catch would silently swallow the failure and the
+    // test would be marked passed.
+    throw error
   }
-  const {
-    timestamp: completionTimestamp,
-    locator: completionNoteLocator,
-  } = completionResult
-
-  // eslint-disable-next-line no-console
-  console.log(
-    `[AccuZip] Completion note detected successfully for Order #${orderId} ` +
-      `at: ${completionTimestamp}`,
-  )
-
-  // -----------------------------------------------------------------
-  // FINAL ASSERTIONS
-  // -----------------------------------------------------------------
-  // Explicitly assert that both note locators are visible — this gives
-  // the test report a clear "passed" line per stage and protects
-  // against the case where polling succeeded but the page state has
-  // since changed.
-  await expect(startNoteLocator).toBeVisible()
-  await expect(completionNoteLocator).toBeVisible()
-
-  // Sanity: both timestamps should be non-empty after a successful poll.
-  expect(startTimestamp).toBeTruthy()
-  expect(completionTimestamp).toBeTruthy()
 })

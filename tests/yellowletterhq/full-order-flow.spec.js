@@ -3,6 +3,10 @@ const { test, expect } = require('@playwright/test')
 const path = require('path')
 const fs = require('fs')
 const dotenv = require('dotenv')
+const {
+  notifyDiscord,
+  formatPacificTimestamp,
+} = require('../../utils/discordNotifier')
 
 /**
  * End-to-end test: navigates the shop, configures a Letter product,
@@ -413,47 +417,82 @@ test('full order flow – Letter → CSV upload → Invoice Me', async ({
   const invoiceRadio = checkoutPage.locator('#payment_method_invoiceme')
   await expect(invoiceRadio).toBeChecked()
 
-  // Place order.
-  const placeOrder = checkoutPage.locator('button#myBtn.btn', {
-    hasText: /Place order/i,
-  })
-  await expect(placeOrder).toBeVisible()
-  await placeOrder.click()
-
-  // Confirmation popup: "YES, PLEASE PROCEED".
-  const proceedPopup = checkoutPage.locator('a.popup-cerrar', {
-    hasText: /YES, PLEASE PROCEED/i,
-  })
-  await expect(proceedPopup).toBeVisible({ timeout: 60_000 })
-  await proceedPopup.click()
-
   // -----------------------------------------------------------------
-  // 10. ASSERT ORDER RECEIVED
+  // 9b. PLACE ORDER → CONFIRM POPUP → WAIT FOR ORDER-RECEIVED PAGE
   // -----------------------------------------------------------------
-  const orderDetails = checkoutPage.locator(
-    'ul.woocommerce-order-overview.woocommerce-thankyou-order-details.order_details',
-  )
-  await expect(orderDetails).toBeVisible({ timeout: 180_000 })
+  // Everything from the "Place order" click through capturing the order
+  // number on the thank-you page runs inside a try/catch so we can fire
+  // a Discord alert on failure. The catch re-throws so Playwright still
+  // marks the test as failed — `notifyDiscord` is best-effort only.
+  let orderId
+  try {
+    // Place order.
+    const placeOrder = checkoutPage.locator('button#myBtn.btn', {
+      hasText: /Place order/i,
+    })
+    await expect(placeOrder).toBeVisible()
+    await placeOrder.click()
 
-  // The order number is rendered inside a `<strong>` tag nested in
-  // `<li class="woocommerce-order-overview__order order">…</li>`. Wait for
-  // it to appear (it's populated by the thank-you page after the order
-  // finishes processing), then read its text content.
-  const orderIdLocator = checkoutPage.locator(
-    'li.woocommerce-order-overview__order.order strong',
-  )
-  await expect(orderIdLocator).toBeVisible({ timeout: 180_000 })
-  // Give the dynamic order number a moment to render inside the <strong>
-  // element — the element is in the DOM but the inner text can be empty
-  // for a brief moment while WooCommerce hydrates it.
-  await expect(orderIdLocator).not.toHaveText('', { timeout: 60_000 })
-  const orderId = (await orderIdLocator.textContent() || '').trim()
+    // Confirmation popup: "YES, PLEASE PROCEED".
+    const proceedPopup = checkoutPage.locator('a.popup-cerrar', {
+      hasText: /YES, PLEASE PROCEED/i,
+    })
+    await expect(proceedPopup).toBeVisible({ timeout: 60_000 })
+    await proceedPopup.click()
 
-  await expect(
-    checkoutPage.locator(
-      '.woocommerce-order-overview__payment-method.method strong',
-    ),
-  ).toHaveText('Invoice Me')
+    // -----------------------------------------------------------------
+    // 10. ASSERT ORDER RECEIVED
+    // -----------------------------------------------------------------
+    const orderDetails = checkoutPage.locator(
+      'ul.woocommerce-order-overview.woocommerce-thankyou-order-details.order_details',
+    )
+    await expect(orderDetails).toBeVisible({ timeout: 180_000 })
+
+    // The order number is rendered inside a `<strong>` tag nested in
+    // `<li class="woocommerce-order-overview__order order">…</li>`.
+    // Wait for it to appear (it's populated by the thank-you page after
+    // the order finishes processing), then read its text content.
+    const orderIdLocator = checkoutPage.locator(
+      'li.woocommerce-order-overview__order.order strong',
+    )
+    await expect(orderIdLocator).toBeVisible({ timeout: 180_000 })
+    // Give the dynamic order number a moment to render inside the
+    // <strong> element — the element is in the DOM but the inner text
+    // can be empty for a brief moment while WooCommerce hydrates it.
+    await expect(orderIdLocator).not.toHaveText('', { timeout: 60_000 })
+    orderId = (await orderIdLocator.textContent() || '').trim()
+
+    await expect(
+      checkoutPage.locator(
+        '.woocommerce-order-overview__payment-method.method strong',
+      ),
+    ).toHaveText('Invoice Me')
+
+    // Success notification — best-effort; never throws.
+    await notifyDiscord(
+      `✅ [ORDER PLACED] Order #: ${orderId} placed successfully at ${formatPacificTimestamp()}`,
+    )
+  } catch (error) {
+    // Capture the *exact* Playwright error message. Many Playwright
+    // errors carry a multi-line message with the locator and timeout,
+    // which can blow past Discord's 2000-char limit once the prefix
+    // and timestamp are added, so truncate to 1500 chars.
+    const errorMessage =
+      error instanceof Error ? error.message : String(error)
+    const truncated =
+      errorMessage.length > 1500
+        ? `${errorMessage.slice(0, 1500)}… [truncated]`
+        : errorMessage
+
+    await notifyDiscord(
+      `❌ [ORDER FAILED] Order placement failed! Error: ${truncated} at ${formatPacificTimestamp()}`,
+    )
+
+    // Re-throw so Playwright still records this as a failure —
+    // otherwise the catch would silently swallow the failure and the
+    // test would be marked passed.
+    throw error
+  }
 
   // -----------------------------------------------------------------
   // 11. PERSIST orderId → test-data/latest-order.json
