@@ -10,9 +10,15 @@
 // Success: 0% error rate, response time < 300ms.
 //
 // Run:
-//   k6 run performance-tests/smoke-test.js
-//   # or with an explicit staging URL:
-//   k6 run -e STAGING_URL=http://16.147.78.186 performance-tests/smoke-test.js
+//   # Recommended: load from .env via the npm script
+//   npm run k6:smoke
+//
+//   # Or, invoke k6 directly (the .env file is NOT auto-loaded by k6):
+//   dotenv -e .env -- k6 run performance-tests/smoke-test.js
+//   k6 run -e STAGING_URL=https://staging.example.com performance-tests/smoke-test.js
+//
+// STAGING_URL is read from the environment. If unset, a safe local placeholder
+// is used so the script never hardcodes a real host/IP in source control.
 // -----------------------------------------------------------------------------
 
 import http from 'k6/http';
@@ -20,7 +26,17 @@ import { check, sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
 
 // -- Configuration ------------------------------------------------------------
-const STAGING_URL = __ENV.STAGING_URL || 'http://16.147.78.186';
+// STAGING_URL must be supplied via env (e.g. .env + `npm run k6:smoke`).
+// The fallback is intentionally a non-routable localhost placeholder so the
+// source never embeds a real host or IP.
+const STAGING_URL = __ENV.STAGING_URL || 'http://localhost:3000';
+
+if (__ENV.STAGING_URL === undefined) {
+  console.warn(
+    '[smoke-test] STAGING_URL is not set — falling back to http://localhost:3000. ' +
+    'Set STAGING_URL in your .env (or pass -e STAGING_URL=...) before running.'
+  );
+}
 
 const SMOKE_ENDPOINTS = [
   { name: 'storefront_root', path: '/' },
