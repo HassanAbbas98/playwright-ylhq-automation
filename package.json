@@ -6,7 +6,8 @@
     "test": "playwright test",
     "test:chromium": "playwright test --project=chromium",
     "k6:smoke": "dotenv -e .env -- k6 run performance-tests/smoke-test.js",
-    "k6:smoke:debug": "dotenv -e .env -- k6 run performance-tests/smoke-test.js --duration 5s --vus 1"
+    "k6:smoke:debug": "dotenv -e .env -- k6 run performance-tests/smoke-test.js --duration 5s --vus 1",
+    "k6:average": "dotenv -e .env -- k6 run performance-tests/average-load-test.js"
   },
   "keywords": [],
   "author": "",

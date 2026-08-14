@@ -1,0 +1,51 @@
+{
+  "username": "YLHQ k6 Performance Bot",
+  "embeds": [
+    {
+      "title": "✅ k6 Average-Load Test — PASSED",
+      "color": 3066993,
+      "timestamp": "2026-08-14T03:42:53.519Z",
+      "footer": {
+        "text": "performance-tests/average-load-test.js"
+      },
+      "fields": [
+        {
+          "name": "Duration",
+          "value": "125593.7021",
+          "inline": true
+        },
+        {
+          "name": "VUs (max)",
+          "value": "5",
+          "inline": true
+        },
+        {
+          "name": "Iterations",
+          "value": "41",
+          "inline": true
+        },
+        {
+          "name": "HTTP requests",
+          "value": "41",
+          "inline": true
+        },
+        {
+          "name": "p(95) latency",
+          "value": "16356.50 ms",
+          "inline": true
+        },
+        {
+          "name": "Avg latency",
+          "value": "9309.56 ms",
+          "inline": true
+        },
+        {
+          "name": "Failure rate",
+          "value": "0.00%",
+          "inline": true
+        }
+      ],
+      "description": "All thresholds met. Phase 2 average-load run is healthy."
+    }
+  ]
+}
