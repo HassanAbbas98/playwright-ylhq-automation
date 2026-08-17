@@ -1,0 +1,127 @@
+{
+  "metrics": {
+    "data_received": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_reqs": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "vus_max": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_duration{expected_response:true}": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_blocked": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_connecting": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_tls_handshaking": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_waiting": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_failed": {
+      "type": "object",
+      "isArray": false,
+      "keys": [
+        "rate<0.5"
+      ],
+      "raw": {
+        "rate<0.5": {
+          "ok": true
+        }
+      }
+    },
+    "journey_latency": {
+      "type": "object",
+      "isArray": false,
+      "keys": [
+        "p(95)<1"
+      ],
+      "raw": {
+        "p(95)<1": {
+          "ok": false
+        }
+      }
+    },
+    "iterations": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "iteration_duration": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_duration": {
+      "type": "object",
+      "isArray": false,
+      "keys": [
+        "p(95)<1"
+      ],
+      "raw": {
+        "p(95)<1": {
+          "ok": false
+        }
+      }
+    },
+    "vus": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_receiving": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "journey_errors": {
+      "type": "object",
+      "isArray": false,
+      "keys": [
+        "rate<0.5"
+      ],
+      "raw": {
+        "rate<0.5": {
+          "ok": true
+        }
+      }
+    },
+    "checks": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "data_sent": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    },
+    "http_req_sending": {
+      "type": "undefined",
+      "isArray": false,
+      "keys": null
+    }
+  }
+}

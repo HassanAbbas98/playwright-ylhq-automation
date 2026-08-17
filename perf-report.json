@@ -4,14 +4,14 @@
     {
       "title": "🔴 k6 Average-Load Test — FAILED",
       "color": 15158332,
-      "timestamp": "2026-08-17T12:17:06.332Z",
+      "timestamp": "2026-08-17T12:45:41.592Z",
       "footer": {
         "text": "performance-tests/average-load-test.js"
       },
       "fields": [
         {
           "name": "Duration",
-          "value": "123414.4307",
+          "value": "120300.5348",
           "inline": true
         },
         {
@@ -21,22 +21,22 @@
         },
         {
           "name": "Iterations",
-          "value": "77",
+          "value": "84",
           "inline": true
         },
         {
           "name": "HTTP requests",
-          "value": "77",
+          "value": "84",
           "inline": true
         },
         {
           "name": "p(95) latency",
-          "value": "7862.16 ms",
+          "value": "3842.10 ms",
           "inline": true
         },
         {
           "name": "Avg latency",
-          "value": "3600.49 ms",
+          "value": "3105.81 ms",
           "inline": true
         },
         {
@@ -46,11 +46,11 @@
         },
         {
           "name": "Breached thresholds",
-          "value": "``````",
+          "value": "```journey_latency: p(95)<3000\njourney_errors: rate<0.01\nhttp_req_duration: p(95)<3000```",
           "inline": false
         }
       ],
-      "description": "Performance thresholds breached (0). Investigate the run report."
+      "description": "Performance thresholds breached (3). Investigate the run report."
     }
   ]
 }

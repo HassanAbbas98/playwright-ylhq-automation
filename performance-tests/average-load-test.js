@@ -163,6 +163,12 @@ const COLOR_RED_FAIL   = 15158332;
  * were breached — i.e. fail-closed. An empty or malformed payload reports
  * FAILED so a missed alert is impossible.
  *
+ * Shape (verified against k6 v2.2.0 via a one-shot probe):
+ *   data.metrics[name].thresholds = { '<threshold expr>': { ok: <bool> }, ... }
+ * — a keyed object, NOT an array. Earlier versions of this code assumed
+ * an array and silently skipped every metric, producing "FAILED — 0
+ * breached" embeds on runs where k6 itself had already exited non-zero.
+ *
  * @param {object} data  k6 SummaryData from handleSummary.
  * @returns {{ passed: boolean, breached: string[], total: number }}
  */
@@ -173,11 +179,15 @@ function evaluateThresholds(data) {
 
   for (const metricName of Object.keys(metrics)) {
     const metric = metrics[metricName];
-    if (!metric || !Array.isArray(metric.thresholds)) continue;
-    for (const t of metric.thresholds) {
+    if (!metric || !metric.thresholds || typeof metric.thresholds !== 'object') continue;
+
+    for (const [expr, verdict] of Object.entries(metric.thresholds)) {
       total++;
-      if (t && t.ok !== true) {
-        breached.push(`${metricName}: ${t.source || '(unnamed threshold)'}`);
+      // `ok` is the authoritative verdict k6 itself uses in the terminal
+      // summary. Anything other than literal `true` is a breach, which
+      // also covers malformed payloads (e.g. `ok: undefined`).
+      if (!verdict || verdict.ok !== true) {
+        breached.push(`${metricName}: ${expr}`);
       }
     }
   }
