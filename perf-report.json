@@ -2,16 +2,16 @@
   "username": "YLHQ k6 Performance Bot",
   "embeds": [
     {
-      "title": "✅ k6 Average-Load Test — PASSED",
-      "color": 3066993,
-      "timestamp": "2026-08-14T03:42:53.519Z",
+      "title": "🔴 k6 Average-Load Test — FAILED",
+      "color": 15158332,
+      "timestamp": "2026-08-17T12:17:06.332Z",
       "footer": {
         "text": "performance-tests/average-load-test.js"
       },
       "fields": [
         {
           "name": "Duration",
-          "value": "125593.7021",
+          "value": "123414.4307",
           "inline": true
         },
         {
@@ -21,31 +21,36 @@
         },
         {
           "name": "Iterations",
-          "value": "41",
+          "value": "77",
           "inline": true
         },
         {
           "name": "HTTP requests",
-          "value": "41",
+          "value": "77",
           "inline": true
         },
         {
           "name": "p(95) latency",
-          "value": "16356.50 ms",
+          "value": "7862.16 ms",
           "inline": true
         },
         {
           "name": "Avg latency",
-          "value": "9309.56 ms",
+          "value": "3600.49 ms",
           "inline": true
         },
         {
           "name": "Failure rate",
           "value": "0.00%",
           "inline": true
+        },
+        {
+          "name": "Breached thresholds",
+          "value": "``````",
+          "inline": false
         }
       ],
-      "description": "All thresholds met. Phase 2 average-load run is healthy."
+      "description": "Performance thresholds breached (0). Investigate the run report."
     }
   ]
 }

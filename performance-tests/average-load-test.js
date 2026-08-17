@@ -15,8 +15,7 @@
 // Success: p(95) http_req_duration < 3000ms; http_req_failed < 1%.
 //
 // Run:
-//   # Recommended: load from .env via the npm script (add the line below to
-//   # package.json alongside the existing k6:smoke entry):
+//   # Recommended: load from .env via the npm script:
 //   #   "k6:average": "dotenv -e .env -- k6 run performance-tests/average-load-test.js"
 //   npm run k6:average
 //
@@ -122,20 +121,28 @@ export default function () {
 // k6 calls handleSummary() once at the end of the test. The returned object
 // maps sink names to file contents; the special "stdout" key is what k6
 // prints to the terminal. We return:
-//   - stdout:        human-readable text summary (always — terminal is useful
-//                    even with no webhook configured)
+//   - stdout:           human-readable text summary (always)
 //   - perf-report.json: the JSON body that was posted to Discord, kept on
-//                    disk for post-mortem inspection
+//                       disk for post-mortem inspection
 export function handleSummary(data) {
-  const stdoutSummary = textSummary(data);
-  const perfReport    = buildPerfReport(data);
+  const verdict       = evaluateThresholds(data);
+  const stdoutSummary = textSummary(data, verdict);
+  const perfReport    = buildPerfReport(data, verdict);
 
-  // Post the embed to the dedicated performance webhook. handleSummary is
-  // synchronous in k6, so we use k6's built-in `http.post` rather than a
-  // global `fetch` (which isn't guaranteed to be available in the GoJS
-  // runtime). A missing webhook or a non-2xx Discord response is logged
-  // but never throws — Discord is a notification, not a test signal.
-  postToDiscord(perfReport);
+  // Silent local fallback: if no webhook is configured (e.g. running this
+  // script outside CI) we just skip the POST. We never want a missing
+  // env var to throw an uncaught network error mid-summary.
+  if (__ENV.DISCORD_PERF_WEBHOOK_URL) {
+    try {
+      http.post(__ENV.DISCORD_PERF_WEBHOOK_URL, JSON.stringify(perfReport), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      // Network glitch or invalid URL — log and continue. Discord is a
+      // notification channel, not part of the test signal.
+      console.warn(`[average-load-test] Discord POST failed: ${err.message || err}`);
+    }
+  }
 
   return {
     'stdout':           stdoutSummary,
@@ -145,117 +152,94 @@ export function handleSummary(data) {
 
 // --- helpers ---------------------------------------------------------------
 
+// Discord embed colors (decimal form so they're copy-pasteable into any
+// embed builder). 0x2ecc71 / 0xe74c3c.
+const COLOR_GREEN_PASS = 3066993;
+const COLOR_RED_FAIL   = 15158332;
+
 /**
- * Post the rich-embed report to DISCORD_PERF_WEBHOOK_URL. No-op with a
- * console warning if the webhook isn't configured. Never throws — the
- * k6 run's exit status must not depend on a Discord POST succeeding.
+ * Inspect the k6 summary and decide whether the run passed. A run passes
+ * only when k6 actually evaluated at least one threshold AND none of them
+ * were breached — i.e. fail-closed. An empty or malformed payload reports
+ * FAILED so a missed alert is impossible.
  *
- * @param {object} perfReport - the JSON body built by buildPerfReport().
+ * @param {object} data  k6 SummaryData from handleSummary.
+ * @returns {{ passed: boolean, breached: string[], total: number }}
  */
-function postToDiscord(perfReport) {
-  const webhookUrl = __ENV.DISCORD_PERF_WEBHOOK_URL;
-  if (!webhookUrl) {
-    console.warn(
-      '[average-load-test] DISCORD_PERF_WEBHOOK_URL is not set; skipping ' +
-      'Discord report. Set it in your .env (or pass -e DISCORD_PERF_WEBHOOK_URL=...) ' +
-      'to enable post-run reports to #ylhq-performance.'
-    );
-    return;
+function evaluateThresholds(data) {
+  const metrics = (data && data.metrics) || {};
+  const breached = [];
+  let total = 0;
+
+  for (const metricName of Object.keys(metrics)) {
+    const metric = metrics[metricName];
+    if (!metric || !Array.isArray(metric.thresholds)) continue;
+    for (const t of metric.thresholds) {
+      total++;
+      if (t && t.ok !== true) {
+        breached.push(`${metricName}: ${t.source || '(unnamed threshold)'}`);
+      }
+    }
   }
 
-  try {
-    const res = http.post(webhookUrl, JSON.stringify(perfReport), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (res.status < 200 || res.status >= 300) {
-      // Discord returns 204 on success; anything else (4xx rate-limit,
-      // 5xx outage) we log but never fail the run.
-      console.warn(
-        `[average-load-test] Discord responded with ${res.status} ${res.statusText}. ` +
-        `Body: ${(res.body || '').slice(0, 200)}`
-      );
-    }
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.warn(`[average-load-test] Failed to send Discord report: ${reason}`);
-  }
+  return { passed: total > 0 && breached.length === 0, breached, total };
 }
 
 /**
- * Build the JSON body for the Discord rich-embed perf report.
- * Kept dependency-free so this script runs with no npm-side setup beyond k6.
- *
- * @param {import('k6/data').SummaryData} data
+ * Build the Discord rich-embed payload. Title, color, and description all
+ * derive from the verdict so the embed can never disagree with k6's own
+ * terminal summary.
  */
-function buildPerfReport(data) {
-  const metrics         = (data && data.metrics) || {};
-  const httpDur         = metrics.http_req_duration && metrics.http_req_duration.values;
-  const httpReqFailed   = metrics.http_req_failed   && metrics.http_req_failed.values;
+function buildPerfReport(data, verdict) {
+  const metrics       = (data && data.metrics) || {};
+  const httpDur       = metrics.http_req_duration && metrics.http_req_duration.values;
+  const httpReqFailed = metrics.http_req_failed   && metrics.http_req_failed.values;
+  const { passed, breached } = verdict;
 
-  // Threshold verdicts: k6 records whether each threshold passed. If
-  // `thresholds` is missing, assume the test failed so the embed goes red.
-  const thresholds = (data && data.root_group && data.root_group.thresholds)
-    ? data.root_group.thresholds
-    : [];
-  const allThresholdsMet = Array.isArray(thresholds)
-    ? thresholds.every((t) => t.ok === true)
-    : false;
-
-  // Treat the run as "success" when every threshold passed. The Discord
-  // embed color flips on this — operators can scan the channel and tell
-  // at a glance which run is green.
-  const passed = allThresholdsMet;
-  const color  = passed ? 0x2ecc71 : 0xe74c3c; // green vs red
-  const title  = passed
-    ? '✅ k6 Average-Load Test — PASSED'
-    : '❌ k6 Average-Load Test — FAILED';
-
-  const fmtMs = (v) => (v === null || v === undefined || Number.isNaN(v))
-    ? 'n/a'
-    : `${v.toFixed(2)} ms`;
-  const fmtPct = (v) => (v === null || v === undefined || Number.isNaN(v))
-    ? 'n/a'
-    : `${(v * 100).toFixed(2)}%`;
+  const fmtMs  = (v) => (v == null || Number.isNaN(v)) ? 'n/a' : `${v.toFixed(2)} ms`;
+  const fmtPct = (v) => (v == null || Number.isNaN(v)) ? 'n/a' : `${(v * 100).toFixed(2)}%`;
 
   const fields = [
-    { name: 'Duration',         value: String((data && data.state && data.state.testRunDurationMs) || 'n/a'), inline: true },
-    { name: 'VUs (max)',        value: String((metrics.vus && metrics.vus.values && metrics.vus.values.max) ?? 'n/a'), inline: true },
-    { name: 'Iterations',       value: String((metrics.iterations && metrics.iterations.values && metrics.iterations.values.count) ?? 'n/a'), inline: true },
-    { name: 'HTTP requests',    value: String((metrics.http_reqs && metrics.http_reqs.values && metrics.http_reqs.values.count) ?? 'n/a'), inline: true },
-    { name: 'p(95) latency',    value: fmtMs(httpDur && httpDur['p(95)']), inline: true },
-    { name: 'Avg latency',      value: fmtMs(httpDur && httpDur.avg),        inline: true },
-    { name: 'Failure rate',     value: fmtPct(httpReqFailed && httpReqFailed.rate), inline: true },
+    { name: 'Duration',      value: String((data && data.state && data.state.testRunDurationMs) || 'n/a'), inline: true },
+    { name: 'VUs (max)',     value: String((metrics.vus && metrics.vus.values && metrics.vus.values.max) ?? 'n/a'), inline: true },
+    { name: 'Iterations',    value: String((metrics.iterations && metrics.iterations.values && metrics.iterations.values.count) ?? 'n/a'), inline: true },
+    { name: 'HTTP requests', value: String((metrics.http_reqs && metrics.http_reqs.values && metrics.http_reqs.values.count) ?? 'n/a'), inline: true },
+    { name: 'p(95) latency', value: fmtMs(httpDur && httpDur['p(95)']), inline: true },
+    { name: 'Avg latency',   value: fmtMs(httpDur && httpDur.avg),        inline: true },
+    { name: 'Failure rate',  value: fmtPct(httpReqFailed && httpReqFailed.rate), inline: true },
   ];
+
+  if (!passed) {
+    const rendered = breached.join('\n');
+    const value = rendered.length > 1024
+      ? `${rendered.slice(0, 1000)}\n…(truncated)`
+      : rendered;
+    fields.push({ name: 'Breached thresholds', value: `\`\`\`${value}\`\`\``, inline: false });
+  }
 
   return {
     username: 'YLHQ k6 Performance Bot',
-    embeds: [
-      {
-        title,
-        color,
-        timestamp: new Date().toISOString(),
-        footer: { text: 'performance-tests/average-load-test.js' },
-        fields,
-        description: passed
-          ? 'All thresholds met. Phase 2 average-load run is healthy.'
-          : 'One or more thresholds breached. Investigate the run report.',
-      },
-    ],
+    embeds: [{
+      title: passed
+        ? '🟢 k6 Average-Load Test — PASSED'
+        : '🔴 k6 Average-Load Test — FAILED',
+      color: passed ? COLOR_GREEN_PASS : COLOR_RED_FAIL,
+      timestamp: new Date().toISOString(),
+      footer: { text: 'performance-tests/average-load-test.js' },
+      fields,
+      description: passed
+        ? 'All performance thresholds met. Phase 2 average-load run is healthy.'
+        : `Performance thresholds breached (${breached.length}). Investigate the run report.`,
+    }],
   };
 }
 
-/**
- * k6's standard text summary, reproduced inline so we don't need a separate
- * import. Format is intentionally close to `k6 run --summary-export=...`
- * output so it's familiar to anyone who has run k6 before.
- *
- * @param {import('k6/data').SummaryData} data
- */
-function textSummary(data) {
+/** Human-readable terminal summary, kept in lock-step with the embed. */
+function textSummary(data, verdict) {
   const lines = [];
   lines.push('');
-  lines.push('  █ k6 Average-Load Test — Summary');
-  lines.push('  ─────────────────────────────────');
+  lines.push('  k6 Average-Load Test — Summary');
+  lines.push('  ------------------------------');
   lines.push('');
 
   const m = (data && data.metrics) || {};
@@ -281,13 +265,13 @@ function textSummary(data) {
     lines.push(fmt('vus (max)', m.vus.values.max));
   }
 
-  const thresholds = (data && data.root_group && data.root_group.thresholds) || [];
   lines.push('');
-  lines.push('  █ Thresholds');
-  thresholds.forEach((t) => {
-    const mark = t.ok ? '✓' : '✗';
-    lines.push(`    ${mark} ${t.name}: ${t.threshold}`);
-  });
+  lines.push(`  Thresholds — ${verdict.passed ? 'PASSED' : 'FAILED'} (${verdict.total} evaluated)`);
+  if (verdict.breached.length === 0) {
+    lines.push('    (no thresholds breached)');
+  } else {
+    verdict.breached.forEach((b) => lines.push(`    x ${b}`));
+  }
   lines.push('');
   return lines.join('\n');
 }
